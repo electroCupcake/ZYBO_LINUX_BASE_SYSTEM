@@ -1,0 +1,88 @@
+--- xilinxfb.c	2018-01-05 22:08:34.000000000 -0500
++++ xilinxfb-fix.c	2018-01-07 18:13:20.544449993 -0500
+@@ -41,7 +41,6 @@
+ 
+ #define DRIVER_NAME		"xilinxfb"
+ 
+-
+ /*
+  * Xilinx calls it "TFT LCD Controller" though it can also be used for
+  * the VGA port on the Xilinx ML40x board. This is a hardware display
+@@ -267,6 +266,8 @@
+ 	int rc;
+ 	struct device *dev = &pdev->dev;
+ 	int fbsize = pdata->xvirt * pdata->yvirt * BYTES_PER_PIXEL;
++	int fbphysize = fbsize + 0x00200000; // preserve for misaligned memory 
++	int fb_physnew;
+ 
+ 	if (drvdata->flags & BUS_ACCESS_FLAG) {
+ 		struct resource *res;
+@@ -282,21 +283,28 @@
+ 	/* Allocate the framebuffer memory */
+ 	if (pdata->fb_phys) {
+ 		drvdata->fb_phys = pdata->fb_phys;
+-		drvdata->fb_virt = ioremap(pdata->fb_phys, fbsize);
++		drvdata->fb_virt = ioremap(pdata->fb_phys, fbphysize);
+ 	} else {
+ 		drvdata->fb_alloced = 1;
+-		drvdata->fb_virt = dma_alloc_coherent(dev, PAGE_ALIGN(fbsize),
+-					&drvdata->fb_phys, GFP_KERNEL);
++		drvdata->fb_virt = dma_alloc_coherent(dev, PAGE_ALIGN(fbphysize),
++					&drvdata->fb_phys, GFP_KERNEL);		
+ 	}
++	
++	/* TFT Base Address of low 21 bit are reserved */
++	if((drvdata->fb_phys & 0x001fffff) != 0)
++	{
++		fb_physnew = (drvdata->fb_phys & 0xffe00000) + 0x00200000;
++		drvdata->fb_virt = drvdata->fb_virt + (fb_physnew - drvdata->fb_phys);
++		drvdata->fb_phys = fb_physnew;
++		printk("xilinxfb : phy addr 0x%x\n", drvdata->fb_phys);
++		printk("xilinxfb : vir addr 0x%x\n", (unsigned int )drvdata->fb_virt);		
++	}	
+ 
+ 	if (!drvdata->fb_virt) {
+ 		dev_err(dev, "Could not allocate frame buffer memory\n");
+ 		return -ENOMEM;
+ 	}
+ 
+-	/* Clear (turn to black) the framebuffer */
+-	memset_io((void __iomem *)drvdata->fb_virt, 0, fbsize);
+-
+ 	/* Tell the hardware where the frame buffer is */
+ 	xilinx_fb_out32(drvdata, REG_FB_ADDR, drvdata->fb_phys);
+ 	rc = xilinx_fb_in32(drvdata, REG_FB_ADDR);
+@@ -356,6 +364,25 @@
+ 	dev_dbg(dev, "fb: phys=%llx, virt=%p, size=%x\n",
+ 		(unsigned long long)drvdata->fb_phys, drvdata->fb_virt, fbsize);
+ 
++	/* Turn off the display */
++	xilinx_fb_out32(drvdata, REG_CTRL, 0);
++
++	/* Clear (turn to black) the framebuffer */
++	memset_io((void __iomem *)drvdata->fb_virt, 0, fbsize);
++
++	/* Put logo on framebuffer */
++	#if defined(CONFIG_FRAMEBUFFER_CONSOLE) && defined(CONFIG_LOGO)
++	  if (fb_prepare_logo(&drvdata->info, FB_ROTATE_UR)) {
++	     /* Start display and show logo on boot */
++	     fb_set_cmap(&drvdata->info.cmap, &drvdata->info);
++	     fb_show_logo(&drvdata->info, FB_ROTATE_UR);
++	  }
++	#endif
++
++	/* Turn on the display */
++	xilinx_fb_out32(drvdata, REG_CTRL,
++					drvdata->reg_ctrl_default);
++	
+ 	return 0;	/* success */
+ 
+ err_regfb:
+@@ -501,6 +528,7 @@
+ 	},
+ };
+ 
++
+ module_platform_driver(xilinxfb_of_driver);
+ 
+ MODULE_AUTHOR("MontaVista Software, Inc. <source@mvista.com>");
