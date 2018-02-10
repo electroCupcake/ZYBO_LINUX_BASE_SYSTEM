@@ -10,6 +10,9 @@
 [submodule "ZYBO_VIVADO_LINUX_BASE"]
 	path = ZYBO_VIVADO_LINUX_BASE
 	url = https://github.com/electroCupcake/ZYBO_VIVADO_LINUX_BASE.git
-[submodule "linux-xlnx"]
-	path = linux-xlnx
-	url = https://github.com/Xilinx/linux-xlnx.git
+[submodule "vivado-library"]
+	path = vivado-library
+	url = https://github.com/Digilent/vivado-library.git
+[submodule "linux-digilent"]
+	path = linux-digilent
+	url = git@github.com:electroCupcake/linux-digilent.git
